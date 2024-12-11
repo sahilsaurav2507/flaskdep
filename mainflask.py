@@ -5,9 +5,35 @@ from sklearn.preprocessing import MinMaxScaler, OneHotEncoder
 from tensorflow.keras.models import Sequential, Model
 from tensorflow.keras.layers import Dense, Dropout, Input, Concatenate, BatchNormalization
 import tensorflow as tf
+import google.generativeai as genai
 
 # Initialize Flask app
 app = Flask(__name__)
+
+system_prompt = """
+##Role of the AI Assistant:
+You are analysing tool which analyse the given data and provide the analysis of the schemes based on the core it provide the score is basicaly of the provided by the trained recommedation system  also there would be considered to having scheme and their detailso whichich demographic filter is used here in filter ::{} the schemes are recokmmended on the basis of the location and gender by filtering and the recommendation sistem ### so analyse the data acordingly, the scheme details present in scheme {} .provide a JSON response with the following format :
+{ 
+    these are the analysis of the data:
+    {
+     "points": {
+      "Point1": "Provide the first insightful analysis or observation here.",
+      "Point2": "Provide the second key finding or insight here.",
+      "Point3": "Provide the third relevant point here.",
+      "Point4": "Provide the fourth important takeaway here."
+    }
+  }
+}
+"""
+
+genai.configure(api_key="AIzaSyCn5UAt76WC7GZ--09qAzHd29mgz8G86TI")
+model = genai.GenerativeModel("gemini-1.5-flash")
+
+def query_gemini_api(user_query):
+    response = model.generate_content(f"{system_prompt}\n\nUser: {user_query}")
+    return json.loads(response.text)
+
+
 
 # Data Initialization
 location_df = pd.DataFrame({
@@ -322,6 +348,16 @@ def recommend():
             "status": "error",
             "message": str(e)
         }), 500
+
+@app.route('/explain', methods=['GET', 'POST'])
+def explain():
+    if request.method == 'POST':
+        data = request.get_json()
+        user_query = data.get('query')
+        if user_query:
+            response = query_gemini_api(user_query)
+            return jsonify(response)
+    return jsonify({"error": "No query provided"})
 
 if __name__ == '__main__':
     app.run(debug=True)
