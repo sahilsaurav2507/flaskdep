@@ -6,10 +6,10 @@ from tensorflow.keras.models import Sequential, Model
 from tensorflow.keras.layers import Dense, Dropout, Input, Concatenate, BatchNormalization
 import tensorflow as tf
 import google.generativeai as genai
-
+from flask_cors import CORS
 # Initialize Flask app
-app = Flask(__name__)
-
+app = Flask(_name_)
+CORS(app) 
 
 # Data Initialization
 location_df = pd.DataFrame({
@@ -308,24 +308,27 @@ def recommend():
             "message": str(e)
         }), 500
 
-
+import json
 genai.configure(api_key="AIzaSyCn5UAt76WC7GZ--09qAzHd29mgz8G86TI")
 model = genai.GenerativeModel("gemini-1.5-flash")
 
-
 def query_gemini_api(user_query):
     try:
+        headers = {
+            'Content-Type': 'application/json'
+        }
+    
         # Enhanced prompt with structured format
         enhanced_prompt = f"""
         Analyze the following query and provide insights:
         Query: {user_query}
-        
+    
         Consider:
         - Scheme recommendations
         - Demographic filters
         - Location based factors
         - Gender specific insights
-        
+    
         Return analysis in the following JSON structure:
         {{
             "analysis": {{
@@ -348,8 +351,8 @@ def query_gemini_api(user_query):
             }}
         }}
         """
-        
-        response = model.generate_content(enhanced_prompt)
+    
+        response = model.generate_content(enhanced_prompt, headers=headers)
         return json.loads(response.text)
     except Exception as e:
         return {
@@ -363,21 +366,24 @@ def query_gemini_api(user_query):
 def explain():
     data = request.get_json()
     user_query = data.get('query')
-    
+
+    headers = {
+        'Content-Type': 'application/json'
+    }
+
     if not user_query:
         return jsonify({
             "status": "error",
             "message": "Query parameter is required"
         }), 400
-        
-    response = query_gemini_api(user_query)
     
+    response = query_gemini_api(user_query)
+
     return jsonify({
         "status": "success",
         "data": response,
         "query": user_query
-    })
+    }), 200, headers
 
-if __name__ == '__main__':
+if _name_ == '_main_':
     app.run(debug=True)
-
