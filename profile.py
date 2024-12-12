@@ -76,8 +76,15 @@ def calculate_cbf_score(user_profile, schemes):
 @app.route('/predict', methods=['POST'])
 def predict():
     try:
-        # Get JSON data from request
-        user_profile = request.get_json()
+        # Get form data directly from request
+        user_profile = {
+            'Id': request.form.get('Id'),
+            'Age': int(request.form.get('Age')),
+            'Gender': request.form.get('Gender'),
+            'Income': float(request.form.get('Income')),
+            'Occupation': request.form.get('Occupation'),
+            'Education': request.form.get('Education')
+        }
         
         # Generate Recommendations
         recommendations = calculate_cbf_score(user_profile, schemes)
@@ -88,10 +95,11 @@ def predict():
             "recommendations": recommendations
         }
 
-        return jsonify(output)
+        return output
     
     except Exception as e:
-        return jsonify({"error": str(e)}), 400
+        return {"error": str(e)}, 400
+
 
 if __name__ == '__main__':
     app.run(debug=True)
