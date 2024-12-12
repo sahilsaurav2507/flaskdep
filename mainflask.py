@@ -10,30 +10,6 @@ import google.generativeai as genai
 # Initialize Flask app
 app = Flask(__name__)
 
-system_prompt = """
-##Role of the AI Assistant:
-You are analysing tool which analyse the given data and provide the analysis of the schemes based on the core it provide the score is basicaly of the provided by the trained recommedation system  also there would be considered to having scheme and their detailso whichich demographic filter is used here in filter ::{} the schemes are recokmmended on the basis of the location and gender by filtering and the recommendation sistem ### so analyse the data acordingly, the scheme details present in scheme {} .provide a JSON response with the following format :
-{ 
-    these are the analysis of the data:
-    {
-     "points": {
-      "Point1": "Provide the first insightful analysis or observation here.",
-      "Point2": "Provide the second key finding or insight here.",
-      "Point3": "Provide the third relevant point here.",
-      "Point4": "Provide the fourth important takeaway here."
-    }
-  }
-}
-"""
-
-genai.configure(api_key="AIzaSyCn5UAt76WC7GZ--09qAzHd29mgz8G86TI")
-model = genai.GenerativeModel("gemini-1.5-flash")
-
-def query_gemini_api(user_query):
-    response = model.generate_content(f"{system_prompt}\n\nUser: {user_query}")
-    return json.loads(response.text)
-
-
 
 # Data Initialization
 location_df = pd.DataFrame({
@@ -42,7 +18,10 @@ location_df = pd.DataFrame({
     'gender_ratio': [0.92, 0.87, 0.95, 0.98, 0.89],
     'income_level': [45000, 52000, 48000, 38000, 35000],
     'farming_cycle': ['Kharif', 'Rabi', 'Mixed', 'Kharif', 'Mixed'],
-    'seasonal_pattern': ['Monsoon', 'Winter', 'Year-round', 'Monsoon', 'Year-round']
+    'seasonal_pattern': ['Monsoon', 'Winter', 'Year-round', 'Monsoon', 'Year-round'],
+    'education_level': ['Graduate', 'Post Graduate', 'High School', 'Graduate', 'High School'],
+    'age_distribution': ['25-35', '35-45', '45-55', '25-35', '35-45'],
+    'occupation': ['Farmer', 'IT Professional', 'Business', 'Teacher', 'Farmer']
 })
 
 scheme_df = pd.DataFrame({
@@ -55,23 +34,24 @@ scheme_df = pd.DataFrame({
     'genre': ['Savings', 'Senior', 'Agriculture', 'General', 'Income']
 })
 
-# New Filters DataFrame
-filters_df = pd.DataFrame({
-    'filter_category': ['Gender', 'Age Group', 'Income Level', 'Tax Benefit', 'Risk Level'],
-    'filter_values': [
-        ['Male', 'Female', 'Both'],
-        ['Young', 'Adult', 'Senior'],
-        ['Low', 'Medium', 'High'],
-        ['Yes', 'No'],
-        ['Low', 'Medium', 'High']
-    ]
-})
-
 user_feedback_df = pd.DataFrame({
     'user_id': [1, 2, 3, 4, 5],
     'location': ['Theni', 'Chennai', 'Thiruvallur', 'Coimbatore', 'Ariyalur'],
     'scheme':  ['Sukanya Samriddhi Yojana', 'Senior citizen saving schemes', 'Kisan Vikas Patra', 'Post office saving account', 'Monthly income scheme'],
     'rating': [4.5, 3.8, 4.2, 3.9, 4.0]
+})
+
+filters_df = pd.DataFrame({
+    'filter_category': ['Gender', 'Age Group', 'Income Level', 'Tax Benefit', 'Risk Level', 'Education Level', 'Occupation'],
+    'filter_values': [
+        ['Male', 'Female', 'Both'],
+        ['Young', 'Adult', 'Senior'],
+        ['Low', 'Medium', 'High'],
+        ['Yes', 'No'],
+        ['Low', 'Medium', 'High'],
+        ['High School', 'Graduate', 'Post Graduate'],
+        ['Farmer', 'IT Professional', 'Business', 'Teacher']
+    ]
 })
 
 # Data Preprocessing
@@ -82,8 +62,12 @@ location_df[['population_density', 'income_level']] = scaler.fit_transform(
 
 # Encoding for Location Features
 location_encoder = OneHotEncoder(sparse_output=False)
-location_cat_encoded = location_encoder.fit_transform(location_df[['farming_cycle', 'seasonal_pattern']])
-location_cat_cols = location_encoder.get_feature_names_out(['farming_cycle', 'seasonal_pattern'])
+location_cat_encoded = location_encoder.fit_transform(
+    location_df[['farming_cycle', 'seasonal_pattern', 'education_level', 'age_distribution', 'occupation']]
+)
+location_cat_cols = location_encoder.get_feature_names_out(
+    ['farming_cycle', 'seasonal_pattern', 'education_level', 'age_distribution', 'occupation']
+)
 location_encoded_df = pd.DataFrame(location_cat_encoded, columns=location_cat_cols)
 
 # Encoding for Scheme Features
@@ -163,9 +147,7 @@ def create_improved_recommendation_model(location_dim, scheme_dim, filter_dim):
 X_loc = location_features.values
 X_scheme = scheme_features.values
 
-# Create filter encoding helper
 def encode_filters(filters):
-    # Create a zero-filled filter feature vector
     filter_features = np.zeros((len(scheme_df), len(filters_df)))
     
     for i, row in filters_df.iterrows():
@@ -173,25 +155,21 @@ def encode_filters(filters):
         if category in filters:
             filter_val = filters.get(category)
             if filter_val in row['filter_values']:
-                # Mark the corresponding filter value
                 col_idx = row['filter_values'].index(filter_val)
-                filter_features[:, i] = col_idx + 1  # Avoid zero
+                filter_features[:, i] = col_idx + 1
     
     return filter_features
 
-# Prepare training labels (using complex weighting)
 def prepare_training_labels():
     y = []
     for i in range(len(location_df)):
         loc_schemes = []
         for j in range(len(scheme_df)):
-            # Use existing ratings or create synthetic rating logic
             base_rating = user_feedback_df[
                 (user_feedback_df['location'] == location_df.loc[i, 'location']) & 
                 (user_feedback_df['scheme'] == scheme_df.loc[j, 'scheme'])
             ]['rating'].values
 
-            # If no existing rating, generate a synthetic one
             rating = base_rating[0] / 5.0 if len(base_rating) > 0 else 0.5
             loc_schemes.append(rating)
         y.extend(loc_schemes)
@@ -203,49 +181,38 @@ y_train = prepare_training_labels()
 X_loc_extended = np.repeat(X_loc, len(X_scheme), axis=0)
 X_scheme_extended = np.tile(X_scheme, (len(X_loc), 1))
 
-# Create filter features (initial simple version)
 X_filter = encode_filters({})
-# Extend X_filter to match other dimensions
 X_filter_extended = np.tile(X_filter, (len(X_loc), 1))
 
-# Train recommendation model with corrected dimensions
 recommendation_model = create_improved_recommendation_model(
     X_loc.shape[1], X_scheme.shape[1], X_filter.shape[1]
 )
 recommendation_model.fit(
-    [X_loc_extended, X_scheme_extended, X_filter_extended],  # Updated X_filter to X_filter_extended
+    [X_loc_extended, X_scheme_extended, X_filter_extended],
     y_train, 
     epochs=20, 
     batch_size=2, 
     verbose=0
 )
+
 def generate_filter_matrix(location, filters=None):
-    """
-    Generate a matrix of recommendations based on location and optional filters
-    """
-    # Validate location
     if location not in location_df['location'].values:
         raise ValueError(f"Invalid location. Choose from: {', '.join(location_df['location'])}")
     
-    # Prepare location features
     loc_idx = location_df.index[location_df['location'] == location].tolist()[0]
     loc_features = location_features.iloc[loc_idx:loc_idx+1].values
     loc_repeated = np.tile(loc_features, (len(scheme_features), 1))
     
-    # Prepare filter features
     filter_features = encode_filters(filters) if filters else encode_filters({})
     
-    # Make predictions
     predictions = recommendation_model.predict(
         [loc_repeated, scheme_features.values, filter_features], 
         verbose=0
     ).flatten()
     
-    # Prepare filter matrix
     filter_matrix = []
     filter_categories = filters_df['filter_category'].tolist()
     
-    # If no filters specified, return basic recommendations
     if not filters:
         recommendations = [{
             "scheme": scheme,
@@ -263,24 +230,20 @@ def generate_filter_matrix(location, filters=None):
             "filter_matrix": None
         }
     
-    # Generate filter matrix if filters are specified
     for filter_category in filter_categories:
         if filter_category in filters:
             filter_val = filters.get(filter_category)
             filter_matrix_row = []
             
             for scheme in scheme_df['scheme']:
-                # Check if scheme matches the filter
                 scheme_filter_val = scheme_df[scheme_df['scheme'] == scheme][
                     filter_category.lower().replace(' ', '_')
                 ].values[0]
                 
                 if scheme_filter_val == filter_val:
-                    # If scheme matches filter, use its prediction score
                     score_idx = scheme_df[scheme_df['scheme'] == scheme].index[0]
                     score = predictions[score_idx]
                 else:
-                    # If scheme doesn't match, give a low score
                     score = 0.1
                 
                 filter_matrix_row.append({
@@ -321,20 +284,16 @@ def recommend():
         data = request.json
         user_id = data.get('userId')
         location = data.get('location')
-        filter_category = data.get('filterCategory')  # Single filter category
-        filter_value = data.get('filterValue')      # Single filter value
+        filter_category = data.get('filterCategory')
+        filter_value = data.get('filterValue')
         
-        # Create filters dict with single filter if provided
         filters = {}
         if filter_category and filter_value:
-            # Validate filter category exists
             if filter_category in filters_df['filter_category'].values:
-                # Validate filter value is valid for the category
                 valid_values = filters_df[filters_df['filter_category'] == filter_category]['filter_values'].iloc[0]
                 if filter_value in valid_values:
                     filters[filter_category] = filter_value
         
-        # Generate recommendations with single filter
         result = generate_filter_matrix(location, filters if filters else None)
         
         return jsonify({
@@ -349,15 +308,76 @@ def recommend():
             "message": str(e)
         }), 500
 
+
+genai.configure(api_key="AIzaSyCn5UAt76WC7GZ--09qAzHd29mgz8G86TI")
+model = genai.GenerativeModel("gemini-1.5-flash")
+
+
+def query_gemini_api(user_query):
+    try:
+        # Enhanced prompt with structured format
+        enhanced_prompt = f"""
+        Analyze the following query and provide insights:
+        Query: {user_query}
+        
+        Consider:
+        - Scheme recommendations
+        - Demographic filters
+        - Location based factors
+        - Gender specific insights
+        
+        Return analysis in the following JSON structure:
+        {{
+            "analysis": {{
+                "key_insights": [
+                    "Insight 1",
+                    "Insight 2",
+                    "Insight 3"
+                ],
+                "recommendations": {{
+                    "primary": "Main recommendation",
+                    "secondary": [
+                        "Additional point 1",
+                        "Additional point 2"
+                    ]
+                }},
+                "demographic_relevance": {{
+                    "location": "Location specific analysis",
+                    "gender": "Gender specific analysis"
+                }}
+            }}
+        }}
+        """
+        
+        response = model.generate_content(enhanced_prompt)
+        return json.loads(response.text)
+    except Exception as e:
+        return {
+            "status": "error",
+            "message": f"Analysis generation failed: {str(e)}",
+            "query": user_query
+        }
+
+
 @app.route('/explain', methods=['GET', 'POST'])
 def explain():
-    if request.method == 'POST':
-        data = request.get_json()
-        user_query = data.get('query')
-        if user_query:
-            response = query_gemini_api(user_query)
-            return jsonify(response)
-    return jsonify({"error": "No query provided"})
+    data = request.get_json()
+    user_query = data.get('query')
+    
+    if not user_query:
+        return jsonify({
+            "status": "error",
+            "message": "Query parameter is required"
+        }), 400
+        
+    response = query_gemini_api(user_query)
+    
+    return jsonify({
+        "status": "success",
+        "data": response,
+        "query": user_query
+    })
 
 if __name__ == '__main__':
     app.run(debug=True)
+
