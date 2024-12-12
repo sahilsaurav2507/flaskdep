@@ -1,5 +1,5 @@
-from flask import Flask, request, jsonify
 import json
+from flask import Flask, request, jsonify
 from sklearn.preprocessing import MinMaxScaler
 from sklearn.metrics.pairwise import cosine_similarity
 import numpy as np
