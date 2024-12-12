@@ -293,22 +293,28 @@ def generate_filter_matrix(location, filters=None):
 @app.route('/recommend', methods=['POST'])
 def recommend():
     try:
-        data = request.json
+        # Validate JSON payload
+        if not request.is_json:
+            return jsonify({"status": "error", "message": "Invalid JSON payload"}), 400
+        
+        data = request.get_json()
         user_id = data.get('userId')
         location = data.get('location')
         filter_category = data.get('filterCategory', "").capitalize()
         filter_value = data.get('filterValue', "").capitalize()
         
+        # Validate required fields
+        if not user_id:
+            return jsonify({"status": "error", "message": "User ID is required"}), 400
         if not location:
             return jsonify({"status": "error", "message": "Location is required"}), 400
-
         if location not in location_df['location'].values:
             return jsonify({
                 "status": "error",
                 "message": f"Invalid location. Choose from: {', '.join(location_df['location'])}"
             }), 400
         
-        # Create filters dict
+        # Create filters dict if provided
         filters = {}
         if filter_category and filter_value:
             if filter_category in filters_df['filter_category'].values:
@@ -320,14 +326,30 @@ def recommend():
                         "status": "error",
                         "message": f"Invalid filter value for {filter_category}. Valid values: {', '.join(valid_values)}"
                     }), 400
+            else:
+                return jsonify({
+                    "status": "error",
+                    "message": f"Invalid filter category. Choose from: {', '.join(filters_df['filter_category'])}"
+                }), 400
         
         # Generate recommendations
         result = generate_filter_matrix(location, filters if filters else None)
         
+        if not result.get("recommendations"):
+            return jsonify({
+                "status": "success",
+                "userId": user_id,
+                "data": {"message": "No recommendations found for the specified filters"}
+            }), 200
+        
         return jsonify({"status": "success", "userId": user_id, "data": result})
 
+    except KeyError as e:
+        return jsonify({"status": "error", "message": f"Missing key in payload: {str(e)}"}), 400
+    except ValueError as e:
+        return jsonify({"status": "error", "message": str(e)}), 400
     except Exception as e:
-        return jsonify({"status": "error", "message": str(e)}), 500
+        return jsonify({"status": "error", "message": f"An unexpected error occurred: {str(e)}"}), 500
 
 if __name__ == '__main__':
     app.run(debug=True)
