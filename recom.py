@@ -293,20 +293,32 @@ def generate_filter_matrix(location, filters=None):
 def recommend():
     try:
         data = request.json
+        if not data:
+            return jsonify({"status": "error", "message": "No JSON data provided"}), 400
+
         user_id = data.get('userId')
         location = data.get('location')
-        filter_category = data.get('filterCategory')  # Single filter category
-        filter_value = data.get('filterValue')      # Single filter value
+        if not location:
+            return jsonify({"status": "error", "message": "Location is required"}), 400
+
+        filter_category = data.get('filterCategory')
+        filter_value = data.get('filterValue')
         
+        # Validate location
+        if location not in location_df['location'].values:
+            return jsonify({"status": "error", "message": f"Invalid location. Choose from: {', '.join(location_df['location'])}"}), 400
+
         # Create filters dict with single filter if provided
         filters = {}
         if filter_category and filter_value:
-            # Validate filter category exists
-            if filter_category in filters_df['filter_category'].values:
-                # Validate filter value is valid for the category
-                valid_values = filters_df[filters_df['filter_category'] == filter_category]['filter_values'].iloc[0]
-                if filter_value in valid_values:
-                    filters[filter_category] = filter_value
+            if filter_category not in filters_df['filter_category'].values:
+                return jsonify({"status": "error", "message": f"Invalid filter category. Choose from: {', '.join(filters_df['filter_category'])}"}), 400
+            
+            valid_values = filters_df[filters_df['filter_category'] == filter_category]['filter_values'].iloc[0]
+            if filter_value not in valid_values:
+                return jsonify({"status": "error", "message": f"Invalid filter value for {filter_category}. Choose from: {', '.join(valid_values)}"}), 400
+            
+            filters[filter_category] = filter_value
         
         # Generate recommendations with single filter
         result = generate_filter_matrix(location, filters if filters else None)
@@ -318,12 +330,11 @@ def recommend():
         })
     
     except Exception as e:
+        app.logger.error(f"An error occurred: {str(e)}")
         return jsonify({
             "status": "error",
-            "message": str(e)
+            "message": "An internal server error occurred. Please try again later."
         }), 500
-    
-
 
 
 
