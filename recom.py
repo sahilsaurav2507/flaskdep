@@ -5,7 +5,7 @@ from sklearn.preprocessing import MinMaxScaler, OneHotEncoder
 from tensorflow.keras.models import Sequential, Model
 from tensorflow.keras.layers import Dense, Dropout, Input, Concatenate, BatchNormalization
 import tensorflow as tf
-import google.generativeai as genai
+
 # Initialize Flask app
 app = Flask(__name__)
 
@@ -289,54 +289,45 @@ def generate_filter_matrix(location, filters=None):
         "filter_matrix": filter_matrix
     }
 
+
 @app.route('/recommend', methods=['POST'])
 def recommend():
     try:
         data = request.json
-        if not data:
-            return jsonify({"status": "error", "message": "No JSON data provided"}), 400
-
         user_id = data.get('userId')
         location = data.get('location')
+        filter_category = data.get('filterCategory', "").capitalize()
+        filter_value = data.get('filterValue', "").capitalize()
+        
         if not location:
             return jsonify({"status": "error", "message": "Location is required"}), 400
 
-        filter_category = data.get('filterCategory')
-        filter_value = data.get('filterValue')
-        
-        # Validate location
         if location not in location_df['location'].values:
-            return jsonify({"status": "error", "message": f"Invalid location. Choose from: {', '.join(location_df['location'])}"}), 400
-
-        # Create filters dict with single filter if provided
+            return jsonify({
+                "status": "error",
+                "message": f"Invalid location. Choose from: {', '.join(location_df['location'])}"
+            }), 400
+        
+        # Create filters dict
         filters = {}
         if filter_category and filter_value:
-            if filter_category not in filters_df['filter_category'].values:
-                return jsonify({"status": "error", "message": f"Invalid filter category. Choose from: {', '.join(filters_df['filter_category'])}"}), 400
-            
-            valid_values = filters_df[filters_df['filter_category'] == filter_category]['filter_values'].iloc[0]
-            if filter_value not in valid_values:
-                return jsonify({"status": "error", "message": f"Invalid filter value for {filter_category}. Choose from: {', '.join(valid_values)}"}), 400
-            
-            filters[filter_category] = filter_value
+            if filter_category in filters_df['filter_category'].values:
+                valid_values = filters_df[filters_df['filter_category'] == filter_category]['filter_values'].iloc[0]
+                if filter_value in valid_values:
+                    filters[filter_category] = filter_value
+                else:
+                    return jsonify({
+                        "status": "error",
+                        "message": f"Invalid filter value for {filter_category}. Valid values: {', '.join(valid_values)}"
+                    }), 400
         
-        # Generate recommendations with single filter
+        # Generate recommendations
         result = generate_filter_matrix(location, filters if filters else None)
         
-        return jsonify({
-            "status": "success",
-            "userId": user_id,
-            "data": result
-        })
-    
+        return jsonify({"status": "success", "userId": user_id, "data": result})
+
     except Exception as e:
-        app.logger.error(f"An error occurred: {str(e)}")
-        return jsonify({
-            "status": "error",
-            "message": "An internal server error occurred. Please try again later."
-        }), 500
-
-
+        return jsonify({"status": "error", "message": str(e)}), 500
 
 if __name__ == '__main__':
     app.run(debug=True)
